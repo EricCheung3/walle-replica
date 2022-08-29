@@ -21,6 +21,7 @@
  *    https://wired.chillibasket.com/3d-printed-wall-e/
  */
 
+#include <IRremote.h> // by github (http://github.com/shirriff/Arduino-IRremote) stable version (v2.x)
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
 #include "Queue.hpp"
@@ -38,6 +39,9 @@
 #define SERVO_ENABLE_PIN 10          // Servo shield output enable pin
 
 
+#define IR_RECEIVER_PIN 4			// IRremote receiver pin
+IRrecv irrecv(IR_RECEIVER_PIN);		// create instance of 'irrecv'
+decode_results results;				// create instance of 'decode_results'
 /**
  * Battery level detection
  *
@@ -141,13 +145,13 @@ uint8_t serialLength = 0;
 
 // ****** SERVO MOTOR CALIBRATION *********************
 // Servo Positions:  Low,High
-int preset[][2] =  {{410,120},  // head rotation
-                    {532,178},  // neck top
-                    {120,310},  // neck bottom
-                    {465,271},  // eye right
-                    {278,479},  // eye left
-                    {340,135},  // arm left
-                    {150,360}}; // arm right
+int preset[][2] =  {{599,200},  // head rotation
+                    {305,728},  // neck top
+                    {260,630},  // neck bottom
+                    {465,580},  // eye right
+                    {410,280},  // eye left
+                    {370,125},  // arm left
+                    {108,330}}; // arm right
 // *****************************************************
 
 
@@ -155,8 +159,8 @@ int preset[][2] =  {{410,120},  // head rotation
 // -- -- -- -- -- -- -- -- -- -- -- -- -- --
 // Servo Pins:	     0,   1,   2,   3,   4,   5,   6,   -,   -
 // Joint Name:	  head,necT,necB,eyeR,eyeL,armL,armR,motL,motR
-float curpos[] = { 248, 560, 140, 475, 270, 250, 290, 180, 180};  // Current position (units)
-float setpos[] = { 248, 560, 140, 475, 270, 250, 290,   0,   0};  // Required position (units)
+float curpos[] = { 248, 560, 500, 500, 300, 300, 290, 180, 180};  // Current position (units)
+float setpos[] = { 248, 560, 500, 500, 300, 300, 290,   0,   0};  // Required position (units)
 float curvel[] = {   0,   0,   0,   0,   0,   0,   0,   0,   0};  // Current velocity (units/sec)
 float maxvel[] = { 500, 400, 500,2400,2400, 600, 600, 255, 255};  // Max Servo velocity (units/sec)
 float accell[] = { 350, 300, 480,1800,1800, 500, 500, 800, 800};  // Servo acceleration (units/sec^2)
@@ -185,6 +189,10 @@ void setup() {
 	// Initialize serial communication for debugging
 	Serial.begin(115200);
 	Serial.println(F("--- Wall-E Control Sketch ---"));
+
+	// Enable IR pin
+  	irrecv.enableIRIn();
+	Serial.println("IR Receiver Button Decode");
 
 	randomSeed(analogRead(0));
 
@@ -215,6 +223,114 @@ void setup() {
 /// This function reads incoming characters in the serial port
 /// and inserts them into a buffer to be processed later.
 // -------------------------------------------------------------------
+char lastInput;
+char receiveInput(){
+  if (irrecv.decode(&results)) // have we received an IR signal?
+  {
+    switch(results.value)
+    {
+      case 0xFFA25D: 
+    	Serial.println("POWER"); 
+        break;
+      case 0xFFE21D: 
+       	Serial.println("FUNC/STOP"); 
+        break;
+      case 0xFF629D: 
+       	Serial.println("VOL+"); 
+        break;
+      case 0xFF22DD: 
+       	Serial.println("FAST BACK");    
+        break;
+      case 0xFF02FD: 
+      	Serial.println("PAUSE");    
+        break;
+      case 0xFFC23D: 
+      	Serial.println("FAST FORWARD");   
+        break;
+      case 0xFFE01F: 
+       	Serial.println("DOWN");    
+        break;
+      case 0xFFA857: 
+       	Serial.println("VOL-");    
+        break;
+      case 0xFF906F: 
+       	Serial.println("UP");    
+        break;
+      case 0xFF9867: 
+       	Serial.println("EQ");    
+        break;
+      case 0xFFB04F: 
+       	Serial.println("ST/REPT");    
+        break;
+      case 0xFF6897: 
+       	Serial.println("0");    
+        break;
+      case 0xFF30CF: 
+       	Serial.println("1");    
+        break;
+      case 0xFF18E7: 
+       	Serial.println("2");    
+        lastInput = 'a'; 
+        break;
+      case 0xFF7A85: 
+       	Serial.println("3");    
+        break;
+      case 0xFF10EF: 
+       	Serial.println("4");    
+        lastInput = 'w'; 
+		break;
+      case 0xFF38C7: 
+       	Serial.println("5");    
+        lastInput = 'q'; 
+        break;
+      case 0xFF5AA5: 
+       	Serial.println("6");    
+        lastInput = 's'; 
+        break;
+      case 0xFF42BD: 
+       	Serial.println("7");    
+        break;
+      case 0xFF4AB5: 
+       	Serial.println("8");    
+        lastInput = 'd';
+        break;
+      case 0xFF52AD: 
+       	Serial.println("9");    
+        break;
+      case 0xFFFFFFFF: 
+       	Serial.println(" REPEAT");
+        lastInput = lastInput; 
+        break;  
+      default: 
+       	Serial.println(" other button   ");
+        lastInput = '-';
+    }
+    
+    // Serial.println(lastInput);
+    
+    // irrecv.resume(); // receive the next value
+  } 
+  return lastInput; 
+}
+
+
+void processInput(char inchar) {
+	// Add to the character to the buffer
+	if (serialLength == 0) firstChar = inchar;
+	else {
+		serialBuffer[serialLength-1] = inchar;
+		serialBuffer[serialLength] = 0;
+	}
+	serialLength++;
+
+	// To prevent overflows, evalute the buffer if it is full
+	if (serialLength == MAX_SERIAL_LENGTH) {
+		evaluateSerial();
+		serialBuffer[0] = 0;
+		serialLength = 0;
+	}
+}
+
 
 void readSerial() {
 
@@ -659,37 +775,46 @@ void loop() {
 
 	// Read any new serial messages
 	// -- -- -- -- -- -- -- -- -- -- -- -- -- --
-	if (Serial.available() > 0){
-		readSerial();
-	}
+	// if (Serial.available() > 0){
+	// 	readSerial();
+	// }
+
+	if (irrecv.decode(&results)) // have we received an IR signal?
+	{
+		// Read input from IRremote
+		char input = receiveInput();
+		processInput(input);
 
 
-	// Load or generate new animations
-	// -- -- -- -- -- -- -- -- -- -- -- -- -- --
-	manageAnimations();
+		// Load or generate new animations
+		// -- -- -- -- -- -- -- -- -- -- -- -- -- --
+		manageAnimations();
 
 
-	// Move Servos and wheels at regular time intervals
-	// -- -- -- -- -- -- -- -- -- -- -- -- -- --
-	if (millis() - updateTimer >= SERVO_UPDATE_TIME) {
-		updateTimer = millis();
+		// Move Servos and wheels at regular time intervals
+		// -- -- -- -- -- -- -- -- -- -- -- -- -- --
+		if (millis() - updateTimer >= SERVO_UPDATE_TIME) {
+			updateTimer = millis();
 
-		unsigned long newTime = micros();
-		float dt = (newTime - lastTime) / 1000.0;
-		lastTime = newTime;
+			unsigned long newTime = micros();
+			float dt = (newTime - lastTime) / 1000.0;
+			lastTime = newTime;
 
-		manageServos(dt);
-		manageMotors(dt);
-	}
+			manageServos(dt);
+			manageMotors(dt);
+		}
 
 
-	// Update robot status
-	// -- -- -- -- -- -- -- -- -- -- -- -- -- --
-	if (millis() - statusTimer >= STATUS_CHECK_TIME) {
-		statusTimer = millis();
+		// Update robot status
+		// -- -- -- -- -- -- -- -- -- -- -- -- -- --
+		if (millis() - statusTimer >= STATUS_CHECK_TIME) {
+			statusTimer = millis();
 
-		#ifdef BAT_L
-			checkBatteryLevel();
-		#endif
-	}
+			#ifdef BAT_L
+				checkBatteryLevel();
+			#endif
+		}
+
+		irrecv.resume(); // receive the next value
+  	}
 }
