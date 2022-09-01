@@ -21,6 +21,7 @@
  *    https://wired.chillibasket.com/3d-printed-wall-e/
  */
 
+#include <IRremote.h> // by github (http://github.com/shirriff/Arduino-IRremote) stable version (v2.x)
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
 #include "Queue.hpp"
@@ -37,7 +38,10 @@
 #define BRAKE_R_PIN  8
 #define SERVO_ENABLE_PIN 10          // Servo shield output enable pin
 
-
+#define VCC2_ENABLE_PIN 5			// addtional 5v input pin
+#define IR_RECEIVER_PIN 4			// IRremote receiver pin
+IRrecv irrecv(IR_RECEIVER_PIN);		// create instance of 'irrecv'
+decode_results results;				// create instance of 'decode_results'
 /**
  * Battery level detection
  *
@@ -88,7 +92,7 @@
 #define SERVO_OFF_TIME 6000       // Turn servo motors off after 6 seconds
 #define STATUS_CHECK_TIME 10000   // Time in milliseconds of how often to check robot status (eg. battery level)
 #define CONTROLLER_THRESHOLD 1    // The minimum error which the dynamics controller tries to achieve
-#define MAX_SERIAL_LENGTH 5       // Maximum number of characters that can be received
+#define MAX_SERIAL_LENGTH 1       // Maximum number of characters that can be received
 
 
 
@@ -141,13 +145,13 @@ uint8_t serialLength = 0;
 
 // ****** SERVO MOTOR CALIBRATION *********************
 // Servo Positions:  Low,High
-int preset[][2] =  {{410,120},  // head rotation
-                    {532,178},  // neck top
-                    {120,310},  // neck bottom
-                    {465,271},  // eye right
-                    {278,479},  // eye left
-                    {340,135},  // arm left
-                    {150,360}}; // arm right
+int preset[][2] =  {{599,200},  // head rotation
+                    {305,728},  // neck top
+                    {260,630},  // neck bottom
+                    {465,580},  // eye right
+                    {410,280},  // eye left
+                    {370,125},  // arm left
+                    {108,330}}; // arm right
 // *****************************************************
 
 
@@ -155,8 +159,8 @@ int preset[][2] =  {{410,120},  // head rotation
 // -- -- -- -- -- -- -- -- -- -- -- -- -- --
 // Servo Pins:	     0,   1,   2,   3,   4,   5,   6,   -,   -
 // Joint Name:	  head,necT,necB,eyeR,eyeL,armL,armR,motL,motR
-float curpos[] = { 248, 560, 140, 475, 270, 250, 290, 180, 180};  // Current position (units)
-float setpos[] = { 248, 560, 140, 475, 270, 250, 290,   0,   0};  // Required position (units)
+float curpos[] = { 248, 560, 500, 500, 300, 300, 290, 180, 180};  // Current position (units)
+float setpos[] = { 248, 560, 500, 500, 300, 300, 290,   0,   0};  // Required position (units)
 float curvel[] = {   0,   0,   0,   0,   0,   0,   0,   0,   0};  // Current velocity (units/sec)
 float maxvel[] = { 500, 400, 500,2400,2400, 600, 600, 255, 255};  // Max Servo velocity (units/sec)
 float accell[] = { 350, 300, 480,1800,1800, 500, 500, 800, 800};  // Servo acceleration (units/sec^2)
@@ -168,6 +172,10 @@ float accell[] = { 350, 300, 480,1800,1800, 500, 500, 800, 800};  // Servo accel
 // -------------------------------------------------------------------
 
 void setup() {
+
+	// Set additional 5v pin for IR Receiver module
+	pinMode(VCC2_ENABLE_PIN, OUTPUT);
+	digitalWrite(VCC2_ENABLE_PIN, HIGH);
 
 	// Output Enable (EO) pin for the servo motors
 	pinMode(SERVO_ENABLE_PIN, OUTPUT);
@@ -185,6 +193,10 @@ void setup() {
 	// Initialize serial communication for debugging
 	Serial.begin(115200);
 	Serial.println(F("--- Wall-E Control Sketch ---"));
+
+	// Enable IR pin
+  	irrecv.enableIRIn();
+	Serial.println("IR Receiver Button Decode");
 
 	randomSeed(analogRead(0));
 
@@ -215,41 +227,124 @@ void setup() {
 /// This function reads incoming characters in the serial port
 /// and inserts them into a buffer to be processed later.
 // -------------------------------------------------------------------
+char lastInput;
+char receiveInput(unsigned long codeValue){
+    switch(codeValue)
+    {
+      case 0xFFA25D: 
+    	Serial.println("POWER"); 
+		lastInput = 'i'; // Left/Right Eye Up/Down or Sad/Neutral head
+        break;
+      case 0xFFE21D: 
+       	Serial.println("FUNC/STOP"); 
+		lastInput = 'l'; // Left/Right Eye Up/Down or Sad/Neutral head
+        break;
+      case 0xFF629D: 
+       	Serial.println("VOL+"); 
+		lastInput = 'g'; // Neck forward
+        break;
+      case 0xFF22DD: 
+       	Serial.println("FAST BACK");  
+		lastInput = 'k'; // Left/Right Eye Up/Down or Sad/Neutral head
+        break;
+      case 0xFF02FD: 
+      	Serial.println("PAUSE");   
+		lastInput = '='; // Head look forward 
+        break;
+      case 0xFFC23D: 
+      	Serial.println("FAST FORWARD");  
+		lastInput = 'j'; // Left/Right Eye Up/Down or Sad/Neutral head
+        break;
+      case 0xFFE01F: 
+       	Serial.println("DOWN");
+		lastInput = '<'; // Head look left
+        break;
+      case 0xFFA857: 
+       	Serial.println("VOL-");
+		lastInput = 'f'; // Neck up
+        break;
+      case 0xFF906F: 
+       	Serial.println("UP");  
+		lastInput = '>'; // Head look right  
+        break;
+      case 0xFF9867: 
+       	Serial.println("EQ");  
+		lastInput = 'h'; // Neck down  
+        break;
+      case 0xFFB04F: 
+       	Serial.println("ST/REPT");  
+		lastInput = 'n'; // Both arms neutral  
+        break;
+      case 0xFF6897: 
+       	Serial.println("0");
+		lastInput = 'b'; // Left arm low, right arm high
+        break;
+      case 0xFF30CF: 
+       	Serial.println("1");
+		lastInput = 'm'; // Right arm low, left arm high
+        break;
+      case 0xFF18E7: 
+       	Serial.println("2");    
+        lastInput = 'd'; // Drive Forward & look left
+        break;
+      case 0xFF7A85: 
+       	Serial.println("3");    
+        break;
+      case 0xFF10EF: 
+       	Serial.println("4");    
+        lastInput = 's'; // Left turn
+		break;
+      case 0xFF38C7: 
+       	Serial.println("5");    
+        lastInput = 'q'; // Stop
+        break;
+      case 0xFF5AA5: 
+       	Serial.println("6");    
+        lastInput = 'w'; // Right turn
+        break;
+      case 0xFF42BD: 
+       	Serial.println("7"); 
+		lastInput = 'A'; // Animation: case 1   
+        break;
+      case 0xFF4AB5: 
+       	Serial.println("8");    
+        lastInput = 'a'; // Drive back & look right
+        break;
+      case 0xFF52AD: 
+       	Serial.println("9");  
+		lastInput = 'M'; // Auto mode
+        break;
+      case 0xFFFFFFFF: 
+       	// Serial.println(" REPEAT");
+		irrecv.resume();
+        break;  
+      default: 
+		irrecv.resume();
+    }
+  return lastInput; 
+}
 
-void readSerial() {
 
-	// Read incoming byte
-	char inchar = Serial.read();
+void processInput(char inchar) {
+	// Add to the character to the buffer
+	if (serialLength == 0) firstChar = inchar;
+	else {
+		serialBuffer[serialLength-1] = inchar;
+		serialBuffer[serialLength] = 0;
+	}
+	serialLength++;
 
-	// If the string has ended, evaluate the serial buffer
-	if (inchar == '\n' || inchar == '\r') {
-
-		if (serialLength > 0) evaluateSerial();
+	// To prevent overflows, evalute the buffer if it is full
+	if (serialLength == MAX_SERIAL_LENGTH) {
+		evaluateSerial();
 		serialBuffer[0] = 0;
 		serialLength = 0;
-
-	// Otherwise add to the character to the buffer
-	} else {
-		if (serialLength == 0) firstChar = inchar;
-		else {
-			serialBuffer[serialLength-1] = inchar;
-			serialBuffer[serialLength] = 0;
-		}
-		serialLength++;
-
-		// To prevent overflows, evalute the buffer if it is full
-		if (serialLength == MAX_SERIAL_LENGTH) {
-			evaluateSerial();
-			serialBuffer[0] = 0;
-			serialLength = 0;
-		}
 	}
 }
 
 
-
 // -------------------------------------------------------------------
-/// Evaluate input from serial port
+/// Evaluate input from IR receiver input
 ///
 /// Parse the received serial message which is stored in
 /// the "serialBuffer" filled by the "readSerial()" function
@@ -273,13 +368,14 @@ void evaluateSerial() {
 
 	// Animations
 	// -- -- -- -- -- -- -- -- -- -- -- -- -- --
-	else if (firstChar == 'A') playAnimation(number);
+	else if (firstChar == 'A') playAnimation(1); //playAnimation(number);
 
 
 	// Autonomous servo mode
 	// -- -- -- -- -- -- -- -- -- -- -- -- -- --
-	else if (firstChar == 'M' && number == 0) autoMode = false;
-	else if (firstChar == 'M' && number == 1) autoMode = true;
+	// else if (firstChar == 'M' && number == 0) autoMode = false;
+	// else if (firstChar == 'M' && number == 1) autoMode = true;
+	else if (firstChar == 'M') autoMode = true;
 
 
 	// Manual servo control
@@ -317,7 +413,7 @@ void evaluateSerial() {
 
 	// Manual Movements with WASD
 	// -- -- -- -- -- -- -- -- -- -- -- -- -- --
-	else if (firstChar == 'w') {		// Forward movement
+	else if (firstChar == 'w') {		// Right turn
 		moveValue = pwmspeed;
 		turnValue = 0;
 		setpos[0] = (preset[0][1] + preset[0][0]) / 2;
@@ -327,17 +423,17 @@ void evaluateSerial() {
 		turnValue = 0;
 		setpos[0] = (preset[0][1] + preset[0][0]) / 2;
 	}
-	else if (firstChar == 's') {		// Backward movement
+	else if (firstChar == 's') {		// Left turn
 		moveValue = -pwmspeed;
 		turnValue = 0;
 		setpos[0] = (preset[0][1] + preset[0][0]) / 2;
 	}
-	else if (firstChar == 'a') {		// Drive & look left
+	else if (firstChar == 'a') {		// Drive back & look left
 		moveValue = 0;
 		turnValue = -pwmspeed;
 		setpos[0] = preset[0][0];
 	}
-	else if (firstChar == 'd') {   		// Drive & look right
+	else if (firstChar == 'd') {   		// Drive forward & look right
 		moveValue = 0;
 		turnValue = pwmspeed;
 		setpos[0] = preset[0][1];
@@ -363,18 +459,33 @@ void evaluateSerial() {
 		setpos[3] = int(0.4 * (preset[3][1] - preset[3][0]) + preset[3][0]);
 	}
 
-
-	// Head movement
+	// Head Rotation movement
 	// -- -- -- -- -- -- -- -- -- -- -- -- -- --
-	else if (firstChar == 'f') {		// Head up
+	else if (firstChar == '<') {		// Head look left
+		setpos[0] = preset[0][0];
+	}
+	else if (firstChar == '>') {		// Head look right
+		setpos[0] = preset[0][1];
+	}else if (firstChar == '=') {		// Head look middle
+		setpos[0] = (preset[0][0] + preset[0][1])/2;
+	}
+
+
+	// Neck movement
+	// -- -- -- -- -- -- -- -- -- -- -- -- -- --
+	else if (firstChar == 'f') {		// Neck up
 		setpos[1] = preset[1][0];
 		setpos[2] = (preset[2][1] + preset[2][0])/2;
 	}
-	else if (firstChar == 'g') {		// Head forward
+	else if (firstChar == 'g') {		// Neck forward
 		setpos[1] = preset[1][1];
 		setpos[2] = preset[2][0];
 	}
-	else if (firstChar == 'h') {		// Head down
+	// else if (firstChar == 't') {		// Neck Neutral ?
+	// 	setpos[1] = preset[1][1];
+	// 	setpos[2] = preset[2][0];
+	// }
+	else if (firstChar == 'h') {		// Neck down
 		setpos[1] = preset[1][0];
 		setpos[2] = preset[2][0];
 	}
@@ -659,37 +770,46 @@ void loop() {
 
 	// Read any new serial messages
 	// -- -- -- -- -- -- -- -- -- -- -- -- -- --
-	if (Serial.available() > 0){
-		readSerial();
-	}
+	// if (Serial.available() > 0){
+	// 	readSerial();
+	// }
+
+	if (irrecv.decode(&results)) // have we received an IR signal?
+	{
+		// Read input from IRremote
+		char input = receiveInput(results.value);
+		processInput(input);
 
 
-	// Load or generate new animations
-	// -- -- -- -- -- -- -- -- -- -- -- -- -- --
-	manageAnimations();
+		// Load or generate new animations
+		// -- -- -- -- -- -- -- -- -- -- -- -- -- --
+		manageAnimations();
 
 
-	// Move Servos and wheels at regular time intervals
-	// -- -- -- -- -- -- -- -- -- -- -- -- -- --
-	if (millis() - updateTimer >= SERVO_UPDATE_TIME) {
-		updateTimer = millis();
+		// Move Servos and wheels at regular time intervals
+		// -- -- -- -- -- -- -- -- -- -- -- -- -- --
+		if (millis() - updateTimer >= SERVO_UPDATE_TIME) {
+			updateTimer = millis();
 
-		unsigned long newTime = micros();
-		float dt = (newTime - lastTime) / 1000.0;
-		lastTime = newTime;
+			unsigned long newTime = micros();
+			float dt = (newTime - lastTime) / 1000.0;
+			lastTime = newTime;
 
-		manageServos(dt);
-		manageMotors(dt);
-	}
+			manageServos(dt);
+			manageMotors(dt);
+		}
 
 
-	// Update robot status
-	// -- -- -- -- -- -- -- -- -- -- -- -- -- --
-	if (millis() - statusTimer >= STATUS_CHECK_TIME) {
-		statusTimer = millis();
+		// Update robot status
+		// -- -- -- -- -- -- -- -- -- -- -- -- -- --
+		if (millis() - statusTimer >= STATUS_CHECK_TIME) {
+			statusTimer = millis();
 
-		#ifdef BAT_L
-			checkBatteryLevel();
-		#endif
-	}
+			#ifdef BAT_L
+				checkBatteryLevel();
+			#endif
+		}
+
+		irrecv.resume(); // receive the next value
+  	}
 }

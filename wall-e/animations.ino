@@ -67,7 +67,7 @@ void playAnimation(int animationNo) {
 			break;
 
 		default:
-			Serial.println(F("Invalid animation requested"));
+			Serial.println("Invalid animation requested");
 			break;
 	}
 
